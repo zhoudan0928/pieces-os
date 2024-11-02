@@ -13,7 +13,7 @@
 # DEMO站
 **请善待公共服务，尽量自己搭建**
 
-[Vercel](https://pieces.nekomoon.cc)
+~~[Vercel](https://pieces.nekomoon.cc)~~
 
 [Cloudflare worker反代koyeb](https://pieces.464888.xyz)
 # 一键部署
@@ -210,6 +210,3 @@ docker rm pieces-os
 ```
 
 请确保在使用服务时使用正确的 API_KEY 进行认证。
-
-# 碎碎念
-我怎么把自己的提交邮箱写错了呢（这些提交都不算在我这个号头上（QWQ
