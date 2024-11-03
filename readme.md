@@ -136,6 +136,10 @@ curl --request POST 'http://127.0.0.1:8787/v1/chat/completions' \
 - **默认值**: `8787`
 - **获取方式**: `process.env.PORT || 8787`
 
+## `SUPPORTED_MODELS`
+- **描述**: 服务监听的端口。
+- **默认值**: 所有模型
+- **获取方式**: `process.env.SUPPORTED_MODELS
 
 ## Docker 部署说明
 

@@ -12,6 +12,7 @@ dotenv.config();
 // 获取当前文件的目录路径（ESM 方式）
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // 初始化配置
+// 初始化配置
 class Config {
         constructor() {
                 this.API_PREFIX = process.env.API_PREFIX || '/';
@@ -23,6 +24,32 @@ class Config {
                 this.GPT_GRPC = 'runtime-native-io-gpt-inference-grpc-service-lmuw6mcn3q-ul.a.run.app';
                 this.GPT_PROTO = path.join(__dirname,'..', 'protos', 'GPTInferenceService.proto')
                 this.PORT = process.env.PORT || 8787;
+                // 添加支持的模型列表
+                this.SUPPORTED_MODELS = process.env.SUPPORTED_MODELS || [
+                        "gpt-4o-mini",
+                        "gpt-4o",
+                        "gpt-4-turbo",
+                        "gpt-4",
+                        "gpt-3.5-turbo",
+                        "claude-3-sonnet@20240229",
+                        "claude-3-opus@20240229",
+                        "claude-3-haiku@20240307",
+                        "claude-3-5-sonnet@20240620",
+                        "gemini-1.5-flash",
+                        "gemini-1.5-pro",
+                        "chat-bison",
+                        "codechat-bison"
+                ];
+        }
+
+        // 添加模型验证方法
+        isValidModel(model) {
+                // 处理 Claude 模型的特殊格式
+                const RegexInput = /^(claude-3-(5-sonnet|haiku|sonnet|opus))-(\d{8})$/;
+                const matchInput = model.match(RegexInput);
+                const normalizedModel = matchInput ? `${matchInput[1]}@${matchInput[3]}` : model;
+
+                return this.SUPPORTED_MODELS.includes(normalizedModel);
         }
 }
 class GRPCHandler {
@@ -159,58 +186,88 @@ async function messagesProcess(messages) {
         return { rules, message };
 }
 
-async function ConvertOpenai(client,request,inputModel,OriginModel,stream) {
+async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
         for (let i = 0; i < config.MAX_RETRY_COUNT; i++) {
                 try {
                         if (stream) {
                                 const call = client.PredictWithStream(request);
                                 const encoder = new TextEncoder();
                                 const ReturnStream = new ReadableStream({
-                                    start(controller) {
-                                            call.on('data', (response) => {
-                                                    let response_code = Number(response.response_code);
-                                                    if (response_code === 204) {
-                                                            // 如果 response_code 是 204，关闭流
-                                                            controller.close()
-                                                            call.destroy()
-                                                    } else if (response_code === 200) {
-                                                            let response_message
-                                                            if (inputModel.includes('gpt')) {
-                                                                    response_message = response.body.message_warpper.message.message;
-                                                            } else {
-                                                                    response_message = response.args.args.args.message;
-                                                            }
-                                                            // 否则，将数据块加入流中
+                                        start(controller) {
+                                                // 处理数据
+                                                call.on('data', (response) => {
+                                                        try {
+                                                                let response_code = Number(response.response_code);
+                                                                if (response_code === 204) {
+                                                                        controller.close();
+                                                                        call.destroy();
+                                                                } else if (response_code === 200) {
+                                                                        let response_message;
+                                                                        if (inputModel.includes('gpt')) {
+                                                                                response_message = response.body.message_warpper.message.message;
+                                                                        } else {
+                                                                                response_message = response.args.args.args.message;
+                                                                        }
+                                                                        controller.enqueue(encoder.encode(`data: ${JSON.stringify(ChatCompletionStreamWithModel(response_message, OriginModel))}\n\n`));
+                                                                } else {
+                                                                        throw new Error(`Invalid response code: ${response_code}`);
+                                                                }
+                                                        } catch (error) {
+                                                                console.error('Error processing stream data:', error);
+                                                                controller.error(error);
+                                                        }
+                                                });
 
-                                                            controller.enqueue(encoder.encode(`data: ${JSON.stringify(ChatCompletionStreamWithModel(response_message, OriginModel))}\n\n`));
-                                                    } else {
-                                                            controller.error(new Error(`Error: stream chunk is not success`));
-                                                            controller.close()
-                                                    }
-                                            })
-                                    }
-                                    });
+                                                // 处理错误
+                                                call.on('error', (error) => {
+                                                        console.error('Stream error:', error);
+                                                        // 如果是 INTERNAL 错误且包含 RST_STREAM，可能是正常的流结束
+                                                        if (error.code === 13 && error.details.includes('RST_STREAM')) {
+                                                                controller.close();
+                                                        } else {
+                                                                controller.error(error);
+                                                        }
+                                                        call.destroy();
+                                                });
+
+                                                // 处理结束
+                                                call.on('end', () => {
+                                                        controller.close();
+                                                });
+
+                                                // 处理取消
+                                                return () => {
+                                                        call.destroy();
+                                                };
+                                        }
+                                });
+
                                 return new Response(ReturnStream, {
                                         headers: {
                                                 'Content-Type': 'text/event-stream',
+                                                'Connection': 'keep-alive',
+                                                'Cache-Control': 'no-cache',
+                                                'Transfer-Encoding': 'chunked'
                                         },
-                                })
-                } else {
-                        const call = await new Promise((resolve, reject) => {
-                                client.Predict(request, (err, response) => {
-                                        if (err) reject(err);
-                                        else resolve(response);
                                 });
-                        });
-                        let response_code = Number(call.response_code);
-                        if (response_code === 200) {
-                                let response_message
-                                if (inputModel.includes('gpt')) {
-                                        response_message = call.body.message_warpper.message.message;
-                                } else {
-                                        response_message = call.args.args.args.message;
-                                }
-                                return new Response(JSON.stringify(ChatCompletionWithModel(response_message, OriginModel)), {
+                        } else {
+                                // 非流式调用保持不变
+                                const call = await new Promise((resolve, reject) => {
+                                        client.Predict(request, (err, response) => {
+                                                if (err) reject(err);
+                                                else resolve(response);
+                                        });
+                                });
+
+                                let response_code = Number(call.response_code);
+                                if (response_code === 200) {
+                                        let response_message;
+                                        if (inputModel.includes('gpt')) {
+                                                response_message = call.body.message_warpper.message.message;
+                                        } else {
+                                                response_message = call.args.args.args.message;
+                                        }
+                                        return new Response(JSON.stringify(ChatCompletionWithModel(response_message, OriginModel)), {
                                                 headers: {
                                                         'Content-Type': 'application/json',
                                                 },
@@ -218,12 +275,27 @@ async function ConvertOpenai(client,request,inputModel,OriginModel,stream) {
                                 }
                         }
                 } catch (err) {
-                        console.error(err);
+                        console.error(`Attempt ${i + 1} failed:`, err);
+                        if (i === config.MAX_RETRY_COUNT - 1) {
+                                return new Response(JSON.stringify({
+                                        error: {
+                                                message: "An error occurred while processing your request",
+                                                type: "server_error",
+                                                code: "internal_error",
+                                                param: null
+                                        }
+                                }), {
+                                        status: 500,
+                                        headers: {
+                                                'Content-Type': 'application/json'
+                                        }
+                                });
+                        }
                         await new Promise((resolve) => setTimeout(resolve, config.RETRY_DELAY));
                 }
         }
-        return error(500, err.message);
 }
+
 
 function ChatCompletionWithModel(message, model) {
         return {
@@ -274,6 +346,25 @@ async function handleCompletion(request) {
                 const RegexInput = /^(claude-3-(5-sonnet|haiku|sonnet|opus))-(\d{8})$/;
                 const matchInput = OriginModel.match(RegexInput);
                 const inputModel = matchInput ? `${matchInput[1]}@${matchInput[3]}` : OriginModel;
+                // 添加模型验证
+                if (!config.isValidModel(inputModel)) {
+                        return new Response(
+                            JSON.stringify({
+                                    error: {
+                                            message: `Model '${OriginModel}' does not exist`,
+                                            type: "invalid_request_error",
+                                            param: "model",
+                                            code: "model_not_found"
+                                    }
+                            }),
+                            {
+                                    status: 404,
+                                    headers: {
+                                            'Content-Type': 'application/json'
+                                    }
+                            }
+                        );
+                }
                 console.log(inputModel,messages,stream)
                 // 解析system和user/assistant消息
                 const { rules, message:content } = await messagesProcess(messages);
