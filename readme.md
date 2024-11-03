@@ -21,6 +21,8 @@
 API_PREFIX环境变量为/hf
 
 # 一键部署
+## Vercel部署后若修改参数请记得重新Redeploy
+
 [![Deploy on Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Nekohy/pieces-os&project-name=Pieces-OS&repository-name=Pieces-OS)
 
 [![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?name=pieces-os&type=docker&image=chb2024%2Fpieces-os%3Alatest&regions=was&env%5B%5D=&ports=8787%3Bhttp%3B%2F)
@@ -107,7 +109,7 @@ curl --request GET 'http://127.0.0.1:8787/v1/models' \
 请求
 curl --request POST 'http://127.0.0.1:8787/v1/chat/completions' \
   --header 'Content-Type: application/json' \
-  --header "Authorization: Bearer Your API_KEY" 
+  --header "Authorization: Bearer Your API_KEY" \
   --data '{
     "messages": [
       {
