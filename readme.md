@@ -107,6 +107,7 @@ curl --request GET 'http://127.0.0.1:8787/v1/models' \
 请求
 curl --request POST 'http://127.0.0.1:8787/v1/chat/completions' \
   --header 'Content-Type: application/json' \
+  --header "Authorization: Bearer Your API_KEY" 
   --data '{
     "messages": [
       {
