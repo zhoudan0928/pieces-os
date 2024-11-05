@@ -1,4 +1,4 @@
-import grpc from '@grpc/grpc-js';
+import grpc from '@huayue/grpc-js';
 import protoLoader from '@grpc/proto-loader';
 import {AutoRouter, cors, error, json} from 'itty-router';
 import dotenv from 'dotenv';
@@ -187,10 +187,12 @@ async function messagesProcess(messages) {
 }
 
 async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
+        const metadata = new grpc.Metadata();
+        metadata.set('User-Agent', 'dart-grpc/2.0.0');
         for (let i = 0; i < config.MAX_RETRY_COUNT; i++) {
                 try {
                         if (stream) {
-                                const call = client.PredictWithStream(request);
+                                const call = client.PredictWithStream(request,metadata);
                                 const encoder = new TextEncoder();
                                 const ReturnStream = new ReadableStream({
                                         start(controller) {
@@ -254,7 +256,7 @@ async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
                         } else {
                                 // 非流式调用保持不变
                                 const call = await new Promise((resolve, reject) => {
-                                        client.Predict(request, (err, response) => {
+                                        client.Predict(request,metadata, (err, response) => {
                                                 if (err) reject(err);
                                                 else resolve(response);
                                         });
