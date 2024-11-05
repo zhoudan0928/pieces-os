@@ -188,7 +188,7 @@ async function messagesProcess(messages) {
 
 async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
   const metadata = new grpc.Metadata()
-  metadata.set('User-Agent', 'dart-grc/2.0.0')
+  metadata.set('User-Agent', 'dart-grpc/2.0.0')
   for (let i = 0; i < config.MAX_RETRY_COUNT; i++) {
     try {
       if (stream) {
