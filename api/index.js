@@ -213,9 +213,12 @@ async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
                   controller.enqueue(
                     encoder.encode(`data: ${JSON.stringify(ChatCompletionStreamWithModel(response_message, OriginModel))}\n\n`),
                   )
+                } else if (response_code === 0) {
+                  console.error(`Invalid response code: ${response_code}`)
+                  controller.error(new Error(`Invalid response code: ${response_code}`))
                 } else {
                   console.error(`Invalid response code: ${response_code}`)
-                  controller.error(error)
+                  controller.error(new Error(`Invalid response code: ${response_code}`))
                 }
               } catch (error) {
                 console.error('Error processing stream data:', error)
@@ -275,6 +278,8 @@ async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
               'Content-Type': 'application/json',
             },
           })
+        } else if (response_code === 0) {
+          throw new Error(`Invalid response code: ${response_code}`)
         } else {
           throw new Error(`Invalid response code: ${response_code}`)
         }
