@@ -17,8 +17,8 @@ class Config {
   constructor() {
     this.API_PREFIX = process.env.API_PREFIX || '/'
     this.API_KEY = process.env.API_KEY || ''
-    this.MAX_RETRY_COUNT = process.env.MAX_RETRY_COUNT || 3
-    this.RETRY_DELAY = process.env.RETRY_DELAY || 5000
+    this.MAX_RETRY_COUNT = process.env.MAX_RETRY_COUNT || 10
+    this.RETRY_DELAY = process.env.RETRY_DELAY || 10000
     this.COMMON_GRPC = 'runtime-native-io-vertex-inference-grpc-service-lmuw6mcn3q-ul.a.run.app'
     this.COMMON_PROTO = path.join(__dirname, '..', 'protos', 'VertexInferenceService.proto')
     this.GPT_GRPC = 'runtime-native-io-gpt-inference-grpc-service-lmuw6mcn3q-ul.a.run.app'
