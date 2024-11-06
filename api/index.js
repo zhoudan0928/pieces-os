@@ -200,10 +200,11 @@ async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
             call.on('data', (response) => {
               try {
                 let response_code = Number(response.response_code)
+                console.log(`Stream response code: ${response_code}`)
                 if (response_code === 204) {
                   controller.close()
                   call.destroy()
-                } else if (response_code === 200) {
+                } else if (response_code === 200 || response_code === 0) {
                   let response_message
                   if (inputModel.includes('gpt')) {
                     response_message = response.body?.message_warpper?.message?.message || ''
@@ -214,6 +215,8 @@ async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
                     controller.enqueue(
                       encoder.encode(`data: ${JSON.stringify(ChatCompletionStreamWithModel(response_message, OriginModel))}\n\n`),
                     )
+                  } else {
+                    console.warn(`Empty response message for response code ${response_code}`)
                   }
                 } else {
                   // 处理包括0在内的其他响应码
@@ -241,20 +244,16 @@ async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
                 }
               } catch (error) {
                 console.error('Error processing stream data:', error)
-                // 不立即终止流，记录错误并继续
-                console.error(error)
               }
             })
 
             // 处理错误
             call.on('error', (error) => {
               console.error('Stream error:', error)
-              // 如果是 INTERNAL 错误且包含 RST_STREAM，可能是正常的流结束
               if (error.code === 13 && error.details.includes('RST_STREAM')) {
                 controller.close()
               } else {
-                // 不立即终止流，记录错误并继续
-                console.error('Stream error:', error)
+                console.error('Unexpected stream error:', error)
               }
             })
 
@@ -286,7 +285,8 @@ async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
           })
         })
         let response_code = Number(call.response_code)
-        if (response_code === 200) {
+        console.log(`Non-stream response code: ${response_code}`)
+        if (response_code === 200 || response_code === 0) {
           let response_message
           if (inputModel.includes('gpt')) {
             response_message = call.body?.message_warpper?.message?.message || ''
@@ -294,6 +294,7 @@ async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
             response_message = call.args?.args?.args?.message || ''
           }
           if (!response_message) {
+            console.warn(`Empty response message for response code ${response_code}`)
             throw new Error('Empty response message')
           }
           return new Response(JSON.stringify(ChatCompletionWithModel(response_message, OriginModel)), {
