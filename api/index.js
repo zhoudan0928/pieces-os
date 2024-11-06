@@ -139,7 +139,7 @@ async function GrpcToPieces(inputModel, OriginModel, message, rules, stream, tem
       top_p: top_p ?? 1,
     }
     // 获取gRPC对象
-    const GRPCobjects = grpc.loadPackageDefinition(packageDefinition).runtime.aot.machine_learning.parents.gpt
+    const GRPCobjects = grageDefinition(packageDefinition).runtime.aot.machine_learning.parents.gpt
     client = new GRPCobjects.GPTInferenceService(config.GPT_GRPC, credentials)
   } else {
     // 加载proto文件
@@ -206,23 +206,43 @@ async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
                 } else if (response_code === 200) {
                   let response_message
                   if (inputModel.includes('gpt')) {
-                    response_message = response.body.message_warpper.message.message
+                    response_message = response.body?.message_warpper?.message?.message || ''
                   } else {
-                    response_message = response.args.args.args.message
+                    response_message = response.args?.args?.args?.message || ''
                   }
-                  controller.enqueue(
-                    encoder.encode(`data: ${JSON.stringify(ChatCompletionStreamWithModel(response_message, OriginModel))}\n\n`),
-                  )
-                } else if (response_code === 0) {
-                  console.error(`Invalid response code: ${response_code}`)
-                  controller.error(new Error(`Invalid response code: ${response_code}`))
+                  if (response_message) {
+                    controller.enqueue(
+                      encoder.encode(`data: ${JSON.stringify(ChatCompletionStreamWithModel(response_message, OriginModel))}\n\n`),
+                    )
+                  }
                 } else {
-                  console.error(`Invalid response code: ${response_code}`)
-                  controller.error(new Error(`Invalid response code: ${response_code}`))
+                  // 处理包括0在内的其他响应码
+                  const errorMessage = `Unexpected response code: ${response_code}`
+                  console.error(errorMessage)
+                  // 不立即终止流，而是继续尝试处理后续数据
+                  if (response_code === 0) {
+                    // 对于0响应码，尝试提取可能存在的消息
+                    let response_message
+                    try {
+                      if (inputModel.includes('gpt')) {
+                        response_message = response.body?.message_warpper?.message?.message
+                      } else {
+                        response_message = response.args?.args?.args?.message
+                      }
+                      if (response_message) {
+                        controller.enqueue(
+                          encoder.encode(`data: ${JSON.stringify(ChatCompletionStreamWithModel(response_message, OriginModel))}\n\n`),
+                        )
+                      }
+                    } catch (err) {
+                      console.error('Failed to extract message from response:', err)
+                    }
+                  }
                 }
               } catch (error) {
                 console.error('Error processing stream data:', error)
-                controller.error(error)
+                // 不立即终止流，记录错误并继续
+                console.error(error)
               }
             })
 
@@ -233,9 +253,9 @@ async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
               if (error.code === 13 && error.details.includes('RST_STREAM')) {
                 controller.close()
               } else {
-                controller.error(error)
+                // 不立即终止流，记录错误并继续
+                console.error('Stream error:', error)
               }
-              call.destroy()
             })
 
             // 处理结束
@@ -258,7 +278,7 @@ async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
           },
         })
       } else {
-        // 非流式调用保持不变
+        // 非流式调用
         const call = await new Promise((resolve, reject) => {
           client.Predict(request, metadata, (err, response) => {
             if (err) reject(err)
@@ -269,9 +289,12 @@ async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
         if (response_code === 200) {
           let response_message
           if (inputModel.includes('gpt')) {
-            response_message = call.body.message_warpper.message.message
+            response_message = call.body?.message_warpper?.message?.message || ''
           } else {
-            response_message = call.args.args.args.message
+            response_message = call.args?.args?.args?.message || ''
+          }
+          if (!response_message) {
+            throw new Error('Empty response message')
           }
           return new Response(JSON.stringify(ChatCompletionWithModel(response_message, OriginModel)), {
             headers: {
@@ -279,6 +302,24 @@ async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
             },
           })
         } else if (response_code === 0) {
+          // 对于非流式调用，尝试从响应中提取消息
+          let response_message
+          try {
+            if (inputModel.includes('gpt')) {
+              response_message = call.body?.message_warpper?.message?.message
+            } else {
+              response_message = call.args?.args?.args?.message
+            }
+            if (response_message) {
+              return new Response(JSON.stringify(ChatCompletionWithModel(response_message, OriginModel)), {
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+              })
+            }
+          } catch (err) {
+            console.error('Failed to extract message from response:', err)
+          }
           throw new Error(`Invalid response code: ${response_code}`)
         } else {
           throw new Error(`Invalid response code: ${response_code}`)
@@ -286,25 +327,28 @@ async function ConvertOpenai(client, request, inputModel, OriginModel, stream) {
       }
     } catch (err) {
       console.error(`Attempt ${i + 1} failed:`, err)
-      await new Promise((resolve) => setTimeout(resolve, config.RETRY_DELAY))
+      if (i < config.MAX_RETRY_COUNT - 1) {
+        await new Promise((resolve) => setTimeout(resolve, config.RETRY_DELAY))
+      } else {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: 'An error occurred while processing your request',
+              type: 'server_error',
+              code: 'internal_error',
+              param: null,
+            },
+          }),
+          {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        )
+      }
     }
   }
-  return new Response(
-    JSON.stringify({
-      error: {
-        message: 'An error occurred while processing your request',
-        type: 'server_error',
-        code: 'internal_error',
-        param: null,
-      },
-    }),
-    {
-      status: 500,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    },
-  )
 }
 
 function ChatCompletionWithModel(message, model) {
